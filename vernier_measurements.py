@@ -107,6 +107,9 @@ class VernierApp:
         ttk.Button(btns, text="Clear readings", command=self.clear_readings).pack(
             side="left", padx=4
         )
+        ttk.Button(btns, text="Clear all", command=self.clear_all).pack(
+            side="left", padx=4
+        )
 
         # --- Result ---
         self.result = tk.Text(root, height=9, width=52, state="disabled")
@@ -281,6 +284,22 @@ class VernierApp:
     def clear_readings(self):
         for e in self.main_entries + self.line_entries:
             e.delete(0, "end")
+
+    def clear_all(self):
+        # sample info
+        self.name.delete(0, "end")
+        self.mtype.current(0)
+        self.shape.delete(0, "end")
+        self.code.delete(0, "end")
+        self.date.delete(0, "end")
+        self.date.insert(0, str(date.today()))
+        # readings
+        self.clear_readings()
+        # result + cache
+        self.last = None
+        self.result.config(state="normal")
+        self.result.delete("1.0", "end")
+        self.result.config(state="disabled")
 
 
 if __name__ == "__main__":
