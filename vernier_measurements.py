@@ -53,27 +53,36 @@ class VernierApp:
         self.date.grid(row=4, column=1, **pad)
 
         # --- Readings ---
-        rd = ttk.LabelFrame(root, text="Readings  (main scale mm  +  vernier line /50)")
-        rd.grid(row=1, column=0, sticky="ew", padx=8, pady=6)
+        self.rd = ttk.LabelFrame(
+            root, text="Readings  (main scale mm  +  vernier line /50)"
+        )
+        self.rd.grid(row=1, column=0, sticky="ew", padx=8, pady=6)
 
-        ttk.Label(rd, text="#").grid(row=0, column=0, **pad)
-        ttk.Label(rd, text="Main scale (mm)").grid(row=0, column=1, **pad)
-        ttk.Label(rd, text="Vernier line (0-50)").grid(row=0, column=2, **pad)
+        ttk.Label(self.rd, text="#").grid(row=0, column=0, **pad)
+        ttk.Label(self.rd, text="Main scale (mm)").grid(row=0, column=1, **pad)
+        ttk.Label(self.rd, text="Vernier line (0-49)").grid(row=0, column=2, **pad)
 
         self.main_entries = []
         self.line_entries = []
-        for i in range(3):  # default 3 readings
-            ttk.Label(rd, text=str(i + 1)).grid(row=i + 1, column=0, **pad)
-            e_main = ttk.Entry(rd, width=12)
-            e_main.grid(row=i + 1, column=1, **pad)
-            e_line = ttk.Entry(rd, width=12)
-            e_line.grid(row=i + 1, column=2, **pad)
-            self.main_entries.append(e_main)
-            self.line_entries.append(e_line)
+        self.row_labels = []
+        self.pad = pad
+
+        for _ in range(3):  # start with 3 reading rows
+            self.add_row()
+
+        # add / remove row buttons
+        rowbtns = ttk.Frame(root)
+        rowbtns.grid(row=2, column=0, sticky="w", padx=8)
+        ttk.Button(rowbtns, text="+ Add reading", command=self.add_row).pack(
+            side="left", padx=4, pady=2
+        )
+        ttk.Button(rowbtns, text="- Remove reading", command=self.remove_row).pack(
+            side="left", padx=4, pady=2
+        )
 
         # --- File location ---
         fl = ttk.LabelFrame(root, text="Save file")
-        fl.grid(row=2, column=0, sticky="ew", padx=8, pady=6)
+        fl.grid(row=3, column=0, sticky="ew", padx=8, pady=6)
 
         self.path_var = tk.StringVar(value=self.save_path)
         ttk.Entry(fl, textvariable=self.path_var, width=40).grid(
@@ -88,7 +97,7 @@ class VernierApp:
 
         # --- Buttons ---
         btns = ttk.Frame(root)
-        btns.grid(row=3, column=0, sticky="ew", padx=8, pady=4)
+        btns.grid(row=4, column=0, sticky="ew", padx=8, pady=4)
         ttk.Button(btns, text="Calculate", command=self.calculate).pack(
             side="left", padx=4
         )
@@ -101,9 +110,31 @@ class VernierApp:
 
         # --- Result ---
         self.result = tk.Text(root, height=9, width=52, state="disabled")
-        self.result.grid(row=4, column=0, padx=8, pady=6)
+        self.result.grid(row=5, column=0, padx=8, pady=6)
 
         self.last = None  # cache last computed dict
+
+    # ---------- dynamic rows ----------
+    def add_row(self):
+        i = len(self.main_entries)
+        r = i + 1  # grid row (row 0 is the header)
+        lbl = ttk.Label(self.rd, text=str(r))
+        lbl.grid(row=r, column=0, **self.pad)
+        e_main = ttk.Entry(self.rd, width=12)
+        e_main.grid(row=r, column=1, **self.pad)
+        e_line = ttk.Entry(self.rd, width=12)
+        e_line.grid(row=r, column=2, **self.pad)
+        self.row_labels.append(lbl)
+        self.main_entries.append(e_main)
+        self.line_entries.append(e_line)
+
+    def remove_row(self):
+        if len(self.main_entries) <= 1:
+            messagebox.showinfo("Minimum", "At least one reading row is required.")
+            return
+        self.row_labels.pop().destroy()
+        self.main_entries.pop().destroy()
+        self.line_entries.pop().destroy()
 
     # ---------- file pickers ----------
     def browse_existing(self):
@@ -139,8 +170,8 @@ class VernierApp:
                 l = float(l)
             except ValueError:
                 raise ValueError("Main scale and vernier line must be numbers.")
-            if not (0 <= l <= N_DIVISIONS):
-                raise ValueError(f"Vernier line must be between 0 and {N_DIVISIONS}.")
+            if not (0 <= l < N_DIVISIONS):
+                raise ValueError(f"Vernier line must be between 0 and {N_DIVISIONS - 1}.")
             readings.append(compute_reading(m, l))
         if not readings:
             raise ValueError("Enter at least one reading.")
@@ -168,7 +199,11 @@ class VernierApp:
         if self.date.get().strip():
             lines.append(f"Date: {self.date.get().strip()}")
 
-        lines.append("Readings: " + ", ".join(f"{r:.3f}" for r in readings) + " mm")
+        lines.append(
+            f"Readings (n={len(readings)}): "
+            + ", ".join(f"{r:.3f}" for r in readings)
+            + " mm"
+        )
         lines.append(f"Mean: {mean:.3f} {unit}")
 
         area = None
@@ -204,17 +239,20 @@ class VernierApp:
             messagebox.showerror("No file", "Please choose a save file location.")
             return
 
-        header = (
-            "date,sample_name,sample_code,shape,type,"
-            "r1_mm,r2_mm,r3_mm,mean_mm,area_mm2\n"
-        )
-        new_file = not os.path.exists(path)
-
-        # pad readings to 3 columns for consistent CSV
-        r = d["readings"] + [""] * (3 - len(d["readings"]))
-        r = [f"{x:.3f}" if isinstance(x, float) else x for x in r[:3]]
+        readings = d["readings"]
+        n = len(readings)
         area_str = f"{d['area']:.4f}" if d["area"] is not None else ""
 
+        # build dynamic header sized to this row's number of readings
+        r_cols = ",".join(f"r{i + 1}_mm" for i in range(n))
+        header = (
+            "date,sample_name,sample_code,shape,type,n,"
+            + r_cols
+            + ",mean_mm,area_mm2\n"
+        )
+
+        new_file = not os.path.exists(path)
+        r_vals = ",".join(f"{x:.3f}" for x in readings)
         row = ",".join(
             [
                 d["date"],
@@ -222,9 +260,8 @@ class VernierApp:
                 d["code"],
                 d["shape"],
                 d["mtype"],
-                r[0],
-                r[1],
-                r[2],
+                str(n),
+                r_vals,
                 f"{d['mean']:.3f}",
                 area_str,
             ]
